@@ -1,10 +1,8 @@
 package com.amb.camtensorflow
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Handler
 import android.support.v4.app.ActivityCompat
@@ -20,21 +18,8 @@ import io.fotoapparat.preview.Frame
 import io.fotoapparat.selector.back
 import io.fotoapparat.util.FrameProcessor
 import io.fotoapparat.view.CameraView
-import io.reactivex.Single
 import io.reactivex.rxkotlin.subscribeBy
 import kotlinx.android.synthetic.main.activity_main.*
-import org.tensorflow.lite.Interpreter
-import java.io.BufferedReader
-import java.io.FileInputStream
-import java.io.IOException
-import java.io.InputStreamReader
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.MappedByteBuffer
-import java.nio.channels.FileChannel
-import java.util.*
-import kotlin.Comparator
-import kotlin.collections.ArrayList
 
 
 class MainActivity : AppCompatActivity() {
@@ -43,17 +28,9 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var fotoapparat: Fotoapparat
 
-    private lateinit var tfLite: Interpreter
-    private lateinit var labelProb: Array<ByteArray>
-    private lateinit var imgData: ByteBuffer
-    private val labels = Vector<String>()
-    private val intValues by lazy { IntArray(INPUT_SIZE * INPUT_SIZE) }
     private val processor: FrameProcessor = { frame ->
-        print(frame)
         if (frame.image.isNotEmpty()) {
-
             recognizeImage(frame)
-
         }
     }
 
@@ -62,20 +39,36 @@ class MainActivity : AppCompatActivity() {
             .toBitmap()
             .whenAvailable { photo ->
                 try {
-                    photo?.let {
-
-                        val photoImage = Bitmap.createScaledBitmap(it.bitmap, INPUT_SIZE, INPUT_SIZE, false)
+                    photo?.let { bitmapPhoto ->
+                        val photoImage =
+                            Bitmap.createScaledBitmap(
+                                bitmapPhoto.bitmap,
+                                INPUT_SIZE,
+                                INPUT_SIZE,
+                                false
+                            )
                         imageResult.setImageBitmap(photoImage)
 
-                        classifier.recognizeImage(photoImage).subscribeBy(
+                        classifier.recognizerTest(photoImage).subscribeBy(
                             onSuccess = {
-                                //                    txtResult.text = it.toString()
                                 print(it)
                             },
                             onError = {
                                 print(it)
+                                Log.e(MainActivity::class.java.simpleName, it.toString())
                             }
                         )
+
+
+                        /*classifier.recognizeImage(photoImage).subscribeBy(
+                            onSuccess = {
+                                print(it)
+                            },
+                            onError = {
+                                print(it)
+                                Log.e(MainActivity::class.java.simpleName, it.toString())
+                            }
+                        )*/
                     }
                 } catch (e: java.lang.Exception) {
 
@@ -91,35 +84,12 @@ class MainActivity : AppCompatActivity() {
 
         if (checkPermission()) {
             setupCameraView()
-//            tensorFlow()
-            classifier = ImageClassifier(getAssets())
+            classifier = ImageClassifier(assets)
             attachFrameProcessor()
         } else {
             requestPermission()
         }
     }
-
-//    private fun tensorFlow() {
-//        try {
-//            val br = BufferedReader(InputStreamReader(assets.open(LABEL_PATH)))
-//            while (true) {
-//                val line = br.readLine() ?: break
-//                labels.add(line)
-//            }
-//            br.close()
-//        } catch (e: IOException) {
-//            throw RuntimeException("Problem reading label file!", e)
-//        }
-//        labelProb = Array(1) { ByteArray(labels.size) }
-//        imgData =
-//            ByteBuffer.allocateDirect(DIM_BATCH_SIZE * DIM_IMG_SIZE_X * DIM_IMG_SIZE_Y * DIM_PIXEL_SIZE)
-//        imgData.order(ByteOrder.nativeOrder())
-//        try {
-//            tfLite = Interpreter(loadModelFile(this.applicationContext))
-//        } catch (e: Exception) {
-//            throw RuntimeException(e)
-//        }
-//    }
 
     override fun onStart() {
         super.onStart()
@@ -129,6 +99,11 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         fotoapparat.stop()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        classifier.close()
     }
 
     private fun setupCameraView() {
@@ -160,87 +135,6 @@ class MainActivity : AppCompatActivity() {
             PERMISSION_REQUEST_CODE
         )
     }
-
-//    private fun loadModelFile(context: Context): MappedByteBuffer {
-//        val fileDescriptor = context.assets.openFd(MODEL_PATH)
-//        val inputStream = FileInputStream(fileDescriptor.fileDescriptor)
-//        val fileChannel = inputStream.channel
-//        return fileChannel.map(
-//            FileChannel.MapMode.READ_ONLY,
-//            fileDescriptor.startOffset,
-//            fileDescriptor.declaredLength
-//        )
-//    }
-
-//    private fun frameInterpreter() {
-//        tfLite = Interpreter(loadModelFile(this.applicationContext))
-//
-//        val labelProbArray = arrayListOf<Float>()
-//        tfLite.run(imgData, labelProbArray)
-//    }
-
-//    private fun convertBitmapToByteBuffer(bitmap: Bitmap) {
-//        imgData.rewind()
-//        bitmap.getPixels(intValues, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-//        var pixel = 0
-//        for (i in 0 until DIM_IMG_SIZE_X) {
-//            for (j in 0 until DIM_IMG_SIZE_Y) {
-//                val value = intValues[pixel++]
-//                imgData.put((value shr 16 and 0xFF).toByte())
-//                imgData.put((value shr 8 and 0xFF).toByte())
-//                imgData.put((value and 0xFF).toByte())
-//            }
-//        }
-//    }
-//
-//    fun recognizeImageFromBitmap(bitmap: Bitmap): Single<List<Result>> {
-//        return Single.just(bitmap).flatMap {
-//            convertBitmapToByteBuffer(it)
-//            tfLite.run(imgData, labelProb)
-//            val pq = PriorityQueue<Result>(3,
-//                Comparator<Result> { lhs, rhs ->
-//                    // Intentionally reversed to put high confidence at the head of the queue.
-//                    java.lang.Float.compare(rhs.confidence!!, lhs.confidence!!)
-//                })
-//            for (i in labels.indices) {
-//                pq.add(
-//                    Result(
-//                        "" + i,
-//                        if (labels.size > i) labels[i] else "unknown",
-//                        labelProb[0][i].toFloat(),
-//                        null
-//                    )
-//                )
-//            }
-//            val recognitions = ArrayList<Result>()
-//            val recognitionsSize = Math.min(pq.size, MAX_RESULTS)
-//            for (i in 0 until recognitionsSize) recognitions.add(pq.poll())
-//            return@flatMap Single.just(recognitions)
-//        }
-//    }
-//
-//    fun recognizeFromFrame(frame: Frame): Single<List<Result>> {
-//        tfLite.run(frame.image, labelProb)
-//        val pq = PriorityQueue<Result>(3,
-//            Comparator<Result> { lhs, rhs ->
-//                // Intentionally reversed to put high confidence at the head of the queue.
-//                java.lang.Float.compare(rhs.confidence!!, lhs.confidence!!)
-//            })
-//        for (i in labels.indices) {
-//            pq.add(
-//                Result(
-//                    "" + i,
-//                    if (labels.size > i) labels[i] else "unknown",
-//                    labelProb[0][i].toFloat(),
-//                    null
-//                )
-//            )
-//        }
-//        val recognitions = ArrayList<Result>()
-//        val recognitionsSize = Math.min(pq.size, MAX_RESULTS)
-//        for (i in 0 until recognitionsSize) recognitions.add(pq.poll())
-//        return Single.just(recognitions)
-//    }
 
     companion object {
         private const val PERMISSION_REQUEST_CODE = 200
